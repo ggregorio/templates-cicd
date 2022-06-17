@@ -1,0 +1,113 @@
+# EL $AUTO_CYPRESS_MANUAL tiene que estar aca y en cypres/inline.yml sino rompe todo.
+# ISSUE PARA HACER LA CORRIDA SINCRONICA https://gitlab.com/gitlab-org/gitlab/-/issues/28763
+.cypress2-deshabilitado:
+    image: $REG_IMG_JOB/santandertec/santander-tecnologia-docker-base-images-other-redis:v6.2.1
+    stage: endtoend
+    rules:
+        - if: '$AUTO_CYPRESS && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "staging"'
+          when: always
+        - if: '$AUTO_CYPRESS_MANUAL && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "staging"'
+          when: manual
+    script:
+        - curl --insecure --request POST --form "token=$CI_JOB_TOKEN" --form ref=$CYPRESS_PROJECT_BRANCH https://gitlab.ar.bsch/api/v4/projects/$CYPRESS_PROJECT_ID/trigger/pipeline
+    tags:
+        - ocp-generic-runner
+
+# Cuando el issue de arriba se solucione, podemos hacer el trigger directamente y atar el resultado al del child pipeline
+
+#.cypress:
+#    stage: endtoend
+#    rules:
+#       - if: '$AUTO_CYPRESS == "true"'
+#         when: always
+#       - if: '$AUTO_CYPRESS_MANUAL'
+#         when: manual
+#    trigger:
+#      project: devops/dumbo/dumbo-cypress
+#      project: ${CYPRESS_PROJECT}
+#      branch: feature.autoCypress
+#      branch: ${CYPRESS_PROJECT_BRANCH}
+#      strategy: depend
+
+.cypress:
+  stage: endtoend
+  image: $REG_IMG_JOB/santandertec/santander-tecnologia-docker-base-images-node-js-cypress:v7.2
+  variables:
+      npm_config_cache: "$CI_PROJECT_DIR/.npm"
+      CYPRESS_CACHE_FOLDER: "/home/cypress/.cache/Cypress"
+      GIT_SUBMODULE_STRATEGY: recursive
+      GIT_SSL_NO_VERIFY: 1
+  before_script:
+    - DOC="https://confluence.ar.bsch/display/DEV/2020/09/23/Novedades+Septiembre+23+en+el+master+de+global-ci-templates"
+    - if [ -z ${CYPRESS_PROJECT+x} ]; then echo "CYPRESS_PROJECT no esta seteada en el archivo .ci-variables.yml.  Podes revisar la documentacion en $DOC"; exit 1; fi
+    - if [ -z ${CYPRESS_FILENAME+x} ]; then echo "CYPRESS_FILENAME no esta seteada en el archivo .ci-variables.yml.  Podes revisar la documentacion en $DOC"; exit 1; fi
+    - git submodule add -f -b master ../$CYPRESS_PROJECT.git $CYPRESS_PROJECT
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - cd ./$CYPRESS_PROJECT
+#    - ls -la
+#    - git branch --set-upstream-to=origin/master
+#    - git pull
+#     - git clone https://gitlab.ar.bsch/devops/dumbo/dumbo-cypress.git
+  script:
+      - npm install
+      - node ./cypress/specs/$CYPRESS_FILENAME
+  rules:
+      - if: '$CYPRESS_AUTO && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+        when: always
+      - if: '$CYPRESS_MANUAL && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+        when: manual
+  allow_failure: true
+  tags:
+      - ocp-generic-runner
+  artifacts:
+      expire_in: 1 week
+      when: always
+      paths:
+      - $CYPRESS_PROJECT/cypress/screenshots/*
+      - $CYPRESS_PROJECT/cypress/videos/*
+
+.selenium:
+  stage: endtoend
+  image: $REG_IMG_JOB/santandertec/santander-tecnologia-docker-base-images-java-selenium:v1
+  variables:
+      GIT_SUBMODULE_STRATEGY: recursive
+      GIT_SSL_NO_VERIFY: 1
+  before_script:
+    - DOC="TBD"
+    - if [ -z ${SELENIUM_PROJECT+x} ]; then echo "SELENIUM_PROJECT no esta seteada en el archivo .ci-variables.yml.  Podes revisar la documentacion en $DOC"; exit 1; fi
+    - git submodule add -f -b master ../$SELENIUM_PROJECT.git $SELENIUM_PROJECT
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - cd ./$SELENIUM_PROJECT
+#    - ls -la
+#    - git branch --set-upstream-to=origin/master
+#    - git pull
+#     - git clone https://gitlab.ar.bsch/devops/dumbo/dumbo-cypress.git
+  script:
+      - OIFS=$IFS;
+      - IFS=";";
+      - args="$ARGS";
+      - argsarray=($args);
+      - mvncommand="-Dbrowser=chrome";
+      - params="";
+      - for ((i=0; i<${#argsarray[@]}; ++i)); do params=$params" -D${argsarray[$i]}"; done;
+      - finalcmd="$mvncommand$params";
+      - if [ "$TESTNG_GROUPS" == "" ]; then echo "La variable TESTNG_GROUPS no esta seteada en .ci-variables.yml" ; else groups="-Dgroups=$TESTNG_GROUPS"; fi;
+      - if [ "$TESTNG_ENV" == "" ]; then echo "La variable TESTNG_ENV no esta seteada en .ci-variables.yml"; exit 1; else environment="-Denvironment=$TESTNG_ENV"; fi;
+      - echo "mvn clean test $groups $environment"
+      - mvn clean test $groups $environment
+  rules:
+      - if: '$SELENIUM_AUTO && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+        when: always
+      - if: '$SELENIUM_MANUAL && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+        when: manual
+  allow_failure: true
+  tags:
+      - ocp-generic-runner
+  artifacts:
+    expire_in: 1 week
+    when: always
+    paths: 
+      - ./automation-testing/report/
+
